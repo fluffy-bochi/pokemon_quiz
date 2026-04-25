@@ -233,8 +233,7 @@ export default function App(){
   const handleKey=e=>{
     if(e.key!=="Enter") return;
     if(e.isComposing) return; // IME変換中のEnterは無視
-    if(phase==="answering") submitAnswer();
-    else nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
+    if(phase==="result") nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
   };
 
   if(screen==="home") return(
