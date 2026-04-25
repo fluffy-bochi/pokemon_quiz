@@ -199,6 +199,7 @@ export default function App(){
   const progressRef=useRef({});
   const inputRef=useRef(null);
   const questionCountRef=useRef(0);
+  const wasComposingRef=useRef(false); // IME変換確定直後フラグ
 
   useEffect(()=>{
     (async()=>{
@@ -259,7 +260,18 @@ export default function App(){
   const handleKey=e=>{
     if(e.key!=="Enter") return;
     if(e.isComposing) return; // IME変換中のEnterは無視
-    if(phase==="result") nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
+    // IME確定直後（変換→Enter）の1回目のEnterは「こたえる」にしない
+    if(wasComposingRef.current){
+      wasComposingRef.current=false;
+      return;
+    }
+    if(phase==="answering") submitAnswer();
+    else if(phase==="result") nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
+  };
+
+  // IME変換が終わったタイミングでフラグをセット
+  const handleCompositionEnd=()=>{
+    wasComposingRef.current=true;
   };
 
   const resumeSession=()=>{
@@ -414,7 +426,8 @@ export default function App(){
               このポケモンの名前は？<span style={{color:"#334155",fontSize:11}}> カタカナで入力</span>
             </p>
             <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)}
-              onKeyDown={handleKey} style={S.input} autoComplete="off" autoCorrect="off" spellCheck="false"/>
+              onKeyDown={handleKey} onCompositionEnd={handleCompositionEnd}
+              style={S.input} autoComplete="off" autoCorrect="off" spellCheck="false"/>
             <div style={{display:"flex",gap:8,marginTop:10,width:"100%"}}>
               <button onClick={()=>submitAnswer(true)} style={S.giveUpBtn}>わからない</button>
               <button onClick={()=>submitAnswer(false)} style={{...S.answerBtn,background:region.color}}>こたえる</button>
