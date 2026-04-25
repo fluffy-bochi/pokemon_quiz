@@ -1,0 +1,402 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+
+// ── localStorage を window.storage と同じ形で使う互換レイヤー ──
+const storage = {
+  get: async (key) => {
+    try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; }
+  },
+  set: async (key, value) => {
+    try { localStorage.setItem(key, value); return { value }; } catch { return null; }
+  },
+};
+
+const POKE_NAMES = {
+  1:"フシギダネ",2:"フシギソウ",3:"フシギバナ",4:"ヒトカゲ",5:"リザード",6:"リザードン",7:"ゼニガメ",8:"カメール",9:"カメックス",10:"キャタピー",
+  11:"トランセル",12:"バタフリー",13:"ビードル",14:"コクーン",15:"スピアー",16:"ポッポ",17:"ピジョン",18:"ピジョット",19:"コラッタ",20:"ラッタ",
+  21:"オニスズメ",22:"オニドリル",23:"アーボ",24:"アーボック",25:"ピカチュウ",26:"ライチュウ",27:"サンド",28:"サンドパン",29:"ニドラン♀",30:"ニドリーナ",
+  31:"ニドクイン",32:"ニドラン♂",33:"ニドリーノ",34:"ニドキング",35:"ピッピ",36:"ピクシー",37:"ロコン",38:"キュウコン",39:"プリン",40:"プクリン",
+  41:"ズバット",42:"ゴルバット",43:"ナゾノクサ",44:"クサイハナ",45:"ラフレシア",46:"パラス",47:"パラセクト",48:"コンパン",49:"モルフォン",50:"ディグダ",
+  51:"ダグトリオ",52:"ニャース",53:"ペルシアン",54:"コダック",55:"ゴルダック",56:"マンキー",57:"オコリザル",58:"ガーディ",59:"ウインディ",60:"ニョロモ",
+  61:"ニョロゾ",62:"ニョロボン",63:"ケーシィ",64:"ユンゲラー",65:"フーディン",66:"マンチョップ",67:"ゴーリキー",68:"カイリキー",69:"マダツボミ",70:"ウツドン",
+  71:"ウツボット",72:"メノクラゲ",73:"ドククラゲ",74:"イシツブテ",75:"ゴローン",76:"ゴローニャ",77:"ポニータ",78:"ギャロップ",79:"ヤドン",80:"ヤドラン",
+  81:"コイル",82:"レアコイル",83:"カモネギ",84:"ドードー",85:"ドードリオ",86:"パウワウ",87:"ジュゴン",88:"ベトベター",89:"ベトベトン",90:"シェルダー",
+  91:"パルシェン",92:"ゴース",93:"ゴースト",94:"ゲンガー",95:"イワーク",96:"スリープ",97:"スリーパー",98:"クラブ",99:"キングラー",100:"ビリリダマ",
+  101:"マルマイン",102:"タマタマ",103:"ナッシー",104:"カラカラ",105:"ガラガラ",106:"サワムラー",107:"エビワラー",108:"ベロリンガ",109:"ドガース",110:"マタドガス",
+  111:"サイホーン",112:"サイドン",113:"ラッキー",114:"モンジャラ",115:"ガルーラ",116:"タッツー",117:"シードラ",118:"トサキント",119:"アズマオウ",120:"ヒトデマン",
+  121:"スターミー",122:"バリヤード",123:"ストライク",124:"ルージュラ",125:"エレブー",126:"ブーバー",127:"カイロス",128:"ケンタロス",129:"コイキング",130:"ギャラドス",
+  131:"ラプラス",132:"メタモン",133:"イーブイ",134:"シャワーズ",135:"サンダース",136:"ブースター",137:"ポリゴン",138:"オムナイト",139:"オムスター",140:"カブト",
+  141:"カブトプス",142:"プテラ",143:"カビゴン",144:"フリーザー",145:"サンダー",146:"ファイヤー",147:"ミニリュウ",148:"ハクリュー",149:"カイリュー",150:"ミュウツー",151:"ミュウ",
+  152:"チコリータ",153:"ベイリーフ",154:"メガニウム",155:"ヒノアラシ",156:"マグマラシ",157:"バクフーン",158:"ワニノコ",159:"アリゲイツ",160:"オーダイル",161:"オタチ",
+  162:"オオタチ",163:"ホーホー",164:"ヨルノズク",165:"レディバ",166:"レディアン",167:"イトマル",168:"アリアドス",169:"クロバット",170:"チョンチー",171:"ランターン",
+  172:"ピチュー",173:"ピィ",174:"ププリン",175:"トゲピー",176:"トゲチック",177:"ネイティ",178:"ネイティオ",179:"メリープ",180:"モコシャ",181:"デンリュウ",
+  182:"キレイハナ",183:"マリル",184:"マリルリ",185:"ウソッキー",186:"ニョロトノ",187:"ハネッコ",188:"ポポッコ",189:"ワタッコ",190:"エイパム",191:"ヒマナッツ",
+  192:"キマワリ",193:"ヤンヤンマ",194:"ウパー",195:"ヌオー",196:"エーフィ",197:"ブラッキー",198:"ヤミカラス",199:"ヤドキング",200:"ムウマ",201:"アンノーン",
+  202:"ソーナンス",203:"キリンリキ",204:"クヌギダマ",205:"フォレトス",206:"ノコッチ",207:"グライガー",208:"ハガネール",209:"ブルー",210:"グランブル",211:"ハリーセン",
+  212:"ハッサム",213:"ツボツボ",214:"ヘラクロス",215:"ニューラ",216:"ヒメグマ",217:"リングマ",218:"マグマッグ",219:"マグカルゴ",220:"ウリムー",221:"イノムー",
+  222:"サニーゴ",223:"テッポウオ",224:"オクタン",225:"デリバード",226:"マンタイン",227:"エアームド",228:"デルビル",229:"ヘルガー",230:"キングドラ",231:"ゴマゾウ",
+  232:"ドンファン",233:"ポリゴン2",234:"オドシシ",235:"ドーブル",236:"バルキー",237:"カポエラー",238:"ムチュール",239:"エレキッド",240:"ブビィ",241:"ミルタンク",
+  242:"ハピナス",243:"ライコウ",244:"エンテイ",245:"スイクン",246:"ヨーギラス",247:"サナギラス",248:"バンギラス",249:"ルギア",250:"ホウオウ",251:"セレビィ",
+  252:"キモリ",253:"ジュプトル",254:"ジュカイン",255:"アチャモ",256:"ワカシャモ",257:"バシャーモ",258:"ミズゴロウ",259:"ヌマクロー",260:"ラグラージ",261:"ポチエナ",
+  262:"グラエナ",263:"ジグザグマ",264:"マッスグマ",265:"ケムッソ",266:"カラサリス",267:"アゲハント",268:"マユルド",269:"ドクケイル",270:"ハスボー",271:"ハスブレロ",
+  272:"ルンパッパ",273:"タネボー",274:"コノハナ",275:"ダーテング",276:"スバメ",277:"オオスバメ",278:"キャモメ",279:"ペリッパー",280:"ラルトス",281:"キルリア",
+  282:"サーナイト",283:"アメタマ",284:"アメモース",285:"キノコキノ",286:"キノガッサ",287:"ナマケロ",288:"ヤルキモノ",289:"ケッキング",290:"ツチニン",291:"テッカニン",
+  292:"ヌケニン",293:"ゴニョニョ",294:"ドゴーム",295:"バクオング",296:"マクノシタ",297:"ハリテヤマ",298:"ルリリ",299:"ノズパス",300:"エネコ",301:"エネコロロ",
+  302:"ヤミラミ",303:"クチート",304:"ココドラ",305:"コドラ",306:"ボスゴドラ",307:"アサナン",308:"チャーレム",309:"ラクライ",310:"ライボルト",311:"プラスル",
+  312:"マイナン",313:"バルビート",314:"イルミーゼ",315:"ロゼリア",316:"ゴクリン",317:"マルノーム",318:"キバニア",319:"サメハダー",320:"ホエルコ",321:"ホエルオー",
+  322:"ドンメル",323:"バクーダ",324:"コータス",325:"バネブー",326:"ブーピッグ",327:"パッチール",328:"ナックラー",329:"ビブラーバ",330:"フライゴン",331:"サボネア",
+  332:"ノクタス",333:"チルット",334:"チルタリス",335:"ザングース",336:"ハブネーク",337:"ルナトーン",338:"ソルロック",339:"ドジョッチ",340:"ナマズン",341:"ヘイガニ",
+  342:"シザリガー",343:"ヤジロン",344:"ネンドール",345:"レリカンス",346:"ユレイドル",347:"アノプス",348:"アーマルド",349:"ヒンバス",350:"ミロカロス",351:"ポワルン",
+  352:"カクレオン",353:"カゲボウズ",354:"ジュペッタ",355:"ヨマワル",356:"サマヨール",357:"トロピウス",358:"チリーン",359:"アブソル",360:"ソーナノ",361:"ユキワラシ",
+  362:"オニゴーリ",363:"タマザラシ",364:"トドグラー",365:"トドゼルガ",366:"パールル",367:"ハンテール",368:"サクラビス",369:"ジーランス",370:"ラブカス",371:"タツベイ",
+  372:"コモルー",373:"ボーマンダ",374:"ダンバル",375:"メタング",376:"メタグロス",377:"レジロック",378:"レジアイス",379:"レジスチル",380:"ラティアス",381:"ラティオス",
+  382:"カイオーガ",383:"グラードン",384:"レックウザ",385:"ジラーチ",386:"デオキシス",
+  387:"ナエトル",388:"ハヤシガメ",389:"ドダイトス",390:"ヒコザル",391:"モウカザル",392:"ゴウカザル",393:"ポッチャマ",394:"ポッタイシ",395:"エンペルト",396:"ムックル",
+  397:"ムクバード",398:"ムクホーク",399:"ビッパ",400:"ビーダル",401:"コロボーシ",402:"コロトック",403:"コリンク",404:"ルクシオ",405:"レントラー",406:"ロゼイド",
+  407:"ロズレイド",408:"ズガイドス",409:"ラムパルド",410:"タテトプス",411:"トリデプス",412:"ミノムッチ",413:"ミノマダム",414:"ガーメイル",415:"ミツハニー",416:"ビークイン",
+  417:"パチリス",418:"ブイゼル",419:"フローゼル",420:"チェリンボ",421:"チェリム",422:"カラナクシ",423:"トリトドン",424:"エテボース",425:"フワンテ",426:"フワライド",
+  427:"ミミロル",428:"ミミロップ",429:"ムウマージ",430:"ドンカラス",431:"ニャルマー",432:"ブニャット",433:"リーシャン",434:"スカンプー",435:"スカタンク",436:"ドーミラー",
+  437:"ドータクン",438:"ウソハチ",439:"マネネ",440:"ピンプク",441:"ペラップ",442:"ミカルゲ",443:"フカマル",444:"ガバイト",445:"ガブリアス",446:"ゴンベ",
+  447:"リオル",448:"ルカリオ",449:"ヒポポタス",450:"カバルドン",451:"スコルピ",452:"ドラピオン",453:"グレッグル",454:"ドクロッグ",455:"マスキッパ",456:"ケイコウオ",
+  457:"ネオラント",458:"タマンタ",459:"ユキカブリ",460:"ユキノオー",461:"マニューラ",462:"ジバコイル",463:"ベロベルト",464:"ドサイドン",465:"モジャンボ",466:"エレキブル",
+  467:"ブーバーン",468:"トゲキッス",469:"メガヤンマ",470:"リーフィア",471:"グレイシア",472:"グライオン",473:"マンムー",474:"ポリゴンZ",475:"エルレイド",476:"ダイノーズ",
+  477:"ヨノワール",478:"フロストロス",479:"ロトム",480:"ユクシー",481:"エムリット",482:"アグノム",483:"ディアルガ",484:"パルキア",485:"ヒードラン",486:"レジギガス",
+  487:"ギラティナ",488:"クレセリア",489:"フィオネ",490:"マナフィ",491:"ダークライ",492:"シェイミ",493:"アルセウス",
+  494:"ヴィクティニ",495:"ツタージャ",496:"ジャノビー",497:"ジャローダ",498:"ポカブ",499:"チャオブー",500:"エンブオー",501:"ミジュマル",502:"フタチマル",503:"ダイケンキ",
+  504:"ミネズミ",505:"ミルホッグ",506:"ヨーテリー",507:"ハーデリア",508:"ムーランド",509:"チョロネコ",510:"レパルダス",511:"ヤナップ",512:"ヤナッキー",513:"バオップ",
+  514:"バオッキー",515:"ヒヤップ",516:"ヒヤッキー",517:"ムンナ",518:"ムシャーナ",519:"マメパト",520:"ハトーボー",521:"ケンホロウ",522:"シママ",523:"ゼブライカ",
+  524:"ダンゴロ",525:"ガントル",526:"ギガイアス",527:"コウモリス",528:"コウモリスン",529:"モグリュー",530:"ドリュウズ",531:"タブンネ",532:"ドッコラー",533:"ドテッコツ",
+  534:"ローブシン",535:"オタマロ",536:"ガマガル",537:"ガマゲロゲ",538:"ナゲキ",539:"ダゲキ",540:"クルミル",541:"クルマユ",542:"ハハコモリ",543:"フシデ",
+  544:"ホイーガ",545:"ペンドラー",546:"モンメン",547:"エルフーン",548:"チュリネ",549:"ドレディア",550:"バスラオ",551:"メグロコ",552:"ワルビル",553:"ワルビアル",
+  554:"ダルマッカ",555:"ヒヒダルマ",556:"マラカッチ",557:"イシズマイ",558:"イワパレス",559:"ズルッグ",560:"ズルズキン",561:"シンボラー",562:"デスマス",563:"デスカーン",
+  564:"プロトーガ",565:"アバゴーラ",566:"アーケン",567:"アーケオス",568:"ヤブクロン",569:"ダストダス",570:"ゾロア",571:"ゾロアーク",572:"チラーミィ",573:"チラチーノ",
+  574:"ゴチム",575:"ゴチミル",576:"ゴチルゼル",577:"ユニラン",578:"ダブラン",579:"ランクルス",580:"コアルヒー",581:"スワンナ",582:"バニプッチ",583:"バニリッチ",
+  584:"バイバニラ",585:"シキジカ",586:"メブキジカ",587:"エモンガ",588:"カブルモ",589:"シュバルゴ",590:"タマゲタケ",591:"モロバレル",592:"プルリル",593:"ブルンゲル",
+  594:"ママンボウ",595:"バチュル",596:"デンチュラ",597:"テッシード",598:"ナットレイ",599:"ギアル",600:"ギギアル",601:"ギギギアル",602:"シビシラス",603:"シビビール",
+  604:"シビルドン",605:"リグレー",606:"オーベム",607:"ヒトモシ",608:"ランプラー",609:"シャンデラ",610:"キバゴ",611:"オノンド",612:"オノノクス",613:"クマシュン",
+  614:"ツンベアー",615:"フリージオ",616:"チョボマキ",617:"アギルダー",618:"マッギョ",619:"コジョフー",620:"コジョンド",621:"クリムガン",622:"ゴビット",623:"ゴルーグ",
+  624:"コマタナ",625:"キリキザン",626:"バッフロン",627:"ワシボン",628:"ウォーグル",629:"バルチャイ",630:"バルジーナ",631:"クイタラン",632:"アイアント",633:"モノズ",
+  634:"ジヘッド",635:"サザンドラ",636:"メラルバ",637:"ウルガモス",638:"コバルオン",639:"テラキオン",640:"ビリジオン",641:"トルネロス",642:"ボルトロス",643:"レシラム",
+  644:"ゼクロム",645:"ランドロス",646:"キュレム",647:"ケルディオ",648:"メロエッタ",649:"ゲノセクト",
+  650:"ハリマロン",651:"ハリボーグ",652:"ブリガロン",653:"フォッコ",654:"テールナー",655:"マフォクシー",656:"ケロマツ",657:"ゲコガシラ",658:"ゲッコウガ",659:"ホルード",
+  660:"ホルーガ",661:"ヤヤコマ",662:"ヒノヤコマ",663:"ファイアロー",664:"コフキムシ",665:"コフーライ",666:"ビビヨン",667:"シシコ",668:"カエンジシ",669:"フラベベ",
+  670:"フラエッテ",671:"フラージェス",672:"メェークル",673:"ゴーゴート",674:"ヤンチャム",675:"ゴロンダ",676:"トリミアン",677:"ニャスパー",678:"ニャオニクス",679:"ヒトツキ",
+  680:"ニダンギル",681:"ギルガルド",682:"シュシュプ",683:"フレフワン",684:"ペロッパフ",685:"ペロリーム",686:"マーイーカ",687:"カラマネロ",688:"カメテテ",689:"ガメノデス",
+  690:"ネマシュ",691:"ドラミドロ",692:"ウデッポウ",693:"ブロスター",694:"エリキテル",695:"エレザード",696:"チゴラス",697:"ガチゴラス",698:"アマルス",699:"アマルルガ",
+  700:"ニンフィア",701:"ルチャブル",702:"デデンネ",703:"メレシー",704:"ヌメラ",705:"ヌメイル",706:"ヌメルゴン",707:"クレッフィ",708:"ボクレー",709:"オーロット",
+  710:"バケッチャ",711:"パンプジン",712:"カチコオル",713:"クレベース",714:"オンバット",715:"オンバーン",716:"ゼルネアス",717:"イベルタル",718:"ジガルデ",719:"ディアンシー",
+  720:"フーパ",721:"ボルケニオン",
+  722:"モクロー",723:"フクスロー",724:"ジュナイパー",725:"ニャビー",726:"ニャヒート",727:"ガオガエン",728:"アシマリ",729:"オシャマリ",730:"アシレーヌ",731:"ツツケラ",
+  732:"ケカンカニ",733:"ドデカバシ",734:"ヤングース",735:"デカグース",736:"アゴジムシ",737:"デンヂムシ",738:"クワガノン",739:"マケンカニ",740:"オドリドリ",741:"オドリドリ",
+  742:"ウルルン",743:"アブリボン",744:"イワンコ",745:"ルガルガン",746:"ヨワシ",747:"ヒドイデ",748:"ドヒドイデ",749:"ドロバンコ",750:"バンバドロ",751:"シズクモ",
+  752:"オニシズクモ",753:"カリキリ",754:"ラランテス",755:"ネマシュ",756:"マシェード",757:"ヤトウモリ",758:"エンニュート",759:"ヌイコグマ",760:"キテルグマ",761:"アマカジ",
+  762:"アママイコ",763:"アマージョ",764:"キュワワー",765:"ヤレユータン",766:"ナゲツケサル",767:"コソクムシ",768:"グソクムシャ",769:"スナバァ",770:"シロデスナ",771:"ナマコブシ",
+  772:"タイプ：ヌル",773:"シルヴァディ",774:"メテノ",775:"ネッコアラ",776:"バクガメス",777:"トゲデマル",778:"ミミッキュ",779:"ハギギシリ",780:"ジジーロン",781:"ダダリン",
+  782:"ジャラコ",783:"ジャランゴ",784:"ジャラランガ",785:"カプ・コケコ",786:"カプ・テテフ",787:"カプ・ブルル",788:"カプ・レヒレ",789:"コスモッグ",790:"コスモウム",791:"ソルガレオ",
+  792:"ルナアーラ",793:"ウツロイド",794:"マッシブーン",795:"フェローチェ",796:"デンジュモク",797:"テッカグヤ",798:"カミツルギ",799:"アクジキング",800:"ネクロズマ",801:"マギアナ",
+  802:"マーシャドー",803:"ベベノム",804:"アーゴヨン",805:"ツンデツンデ",806:"ズガドーン",807:"ゼラオラ",808:"メルタン",809:"メルメタル",
+  810:"サルノリ",811:"バチンキー",812:"ゴリランダー",813:"ヒバニー",814:"ラビフット",815:"エースバーン",816:"メッソン",817:"ジメレオン",818:"インテレオン",819:"ホシガリス",
+  820:"ヨクバリス",821:"ツブツボ",822:"チョッパー",823:"アーマーガア",824:"サッチムシ",825:"レドームシ",826:"イオルブ",827:"クスネ",828:"フォクスライ",829:"ヒメンカ",
+  830:"ワタシラガ",831:"ウールー",832:"バリコオル",833:"カムカメ",834:"カジリガメ",835:"ワンパチ",836:"パルスワン",837:"タンドン",838:"トロッゴン",839:"セキタンザン",
+  840:"カジッチュ",841:"アップリュー",842:"タルップル",843:"サダイジャ",844:"ダイジャ",845:"ウッウ",846:"サシカマス",847:"カマスジョー",848:"エレズン",849:"ストリンダー",
+  850:"ヤクデ",851:"マルヤクデ",852:"ニュービ",853:"オトスパス",854:"ヤバチャ",855:"ポットデス",856:"ミブリム",857:"テブリム",858:"ブリムオン",859:"ベロバー",
+  860:"ゴロウデイ",861:"オーロンゲ",862:"タチフサグマ",863:"ニャイキング",864:"サニゴーン",865:"ネギガナイト",866:"バリコオル",867:"ムゲンダイナ",868:"マホミル",869:"マホイップ",
+  870:"コレクレー",871:"サブれロ",872:"ユキハミ",873:"モスノウ",874:"ゴロンデ",875:"コオリッポ",876:"イエッサン",877:"モルペコ",878:"ダイオウドウ",879:"コッパジム",
+  880:"パッチラゴン",881:"パッチルドン",882:"ウオノラゴン",883:"ウオチルドン",884:"ドラパルト",885:"ドラメシヤ",886:"ドロンチ",887:"ドラパルト",888:"ザシアン",889:"ザマゼンタ",
+  890:"ムゲンダイナ",891:"ウーラオス",892:"ウーラオス",893:"ザルード",894:"レジエレキ",895:"レジドラゴ",896:"ブリザポス",897:"レイスポス",898:"バドレックス",
+  906:"ニャオハ",907:"ニャローテ",908:"マスカーニャ",909:"ホゲータ",910:"アチゲータ",911:"ラウドボーン",912:"クワッス",913:"ウェルカモ",914:"ウェーニバル",915:"タマンチュラ",
+  916:"スピンロー",917:"カイデン",918:"ハラバリー",919:"パフュートン",920:"パフォーリー",921:"パーモット",922:"タドプシ",923:"タドシボン",924:"パイニャ",925:"バウッチ",
+  926:"オリーニョ",927:"オリーリョ",928:"ゴールンチュ",929:"リキキリン",930:"イキリンコ",931:"ガケガニ",932:"グルトン",933:"ドオー",934:"トドロクツキ",935:"テツノカイナ",
+  936:"テツノコウベ",937:"テツノドクガ",938:"テツノイバラ",939:"ブロロン",940:"テツノワダチ",941:"チヲハウハネ",942:"サケブシッポ",943:"イイネイヌ",944:"マシマシラ",945:"キチキギス",
+  946:"オーガポン",947:"テツノブジン",948:"テツノカシラ",949:"テツノキバ",950:"ウネルミナモ",951:"テツノフジン",952:"テツノツツミ",953:"コライドン",954:"ミライドン",
+  955:"ディンルー",956:"チオンジェン",957:"パオジアン",958:"イーユイ",959:"ウガツホムラ",960:"タケルライコ",
+};
+
+const REGIONS = [
+  { name:"全て",    emoji:"✨", min:1,   max:1025, color:"#7c6aff" },
+  { name:"カントー", emoji:"🔴", min:1,   max:151,  color:"#e05c3a" },
+  { name:"ジョウト", emoji:"🌕", min:152, max:251,  color:"#d4a017" },
+  { name:"ホウエン", emoji:"🌊", min:252, max:386,  color:"#2980b9" },
+  { name:"シンオウ", emoji:"❄️", min:387, max:493,  color:"#6c7fe8" },
+  { name:"イッシュ", emoji:"🏙️", min:494, max:649,  color:"#778ca3" },
+  { name:"カロス",  emoji:"🗼", min:650, max:721,  color:"#c0579a" },
+  { name:"アローラ", emoji:"🌺", min:722, max:809,  color:"#16a085" },
+  { name:"ガラル",  emoji:"⚔️", min:810, max:905,  color:"#4a90d9" },
+  { name:"パルデア", emoji:"🍊", min:906, max:1025, color:"#d35400" },
+];
+
+const BOX_WEIGHTS=[12,6,3,1,0.3];
+const BOX_COLORS=["#ef4444","#f97316","#eab308","#22c55e","#60a5fa"];
+const BOX_LABELS=["未習得","学習中","定着中","習熟","マスター"];
+
+function normalizeColon(s){return s.replace(/:/g,"：").trim();}
+function checkAnswer(input,name){return normalizeColon(input)===normalizeColon(name);}
+
+function getStats(region,progress){
+  const total=region.max-region.min+1;
+  const boxes=[0,0,0,0,0];
+  for(let id=region.min;id<=region.max;id++) boxes[Math.min(progress[id]??0,4)]++;
+  return {total,boxes};
+}
+
+function selectId(region,progress,reviewOnly){
+  const ids=[],weights=[];
+  for(let id=region.min;id<=region.max;id++){
+    const box=progress[id]??0;
+    if(reviewOnly&&box>0) continue;
+    ids.push(id); weights.push(BOX_WEIGHTS[Math.min(box,4)]);
+  }
+  if(!ids.length) return null;
+  const total=weights.reduce((a,b)=>a+b,0);
+  let r=Math.random()*total;
+  for(let i=0;i<ids.length;i++){r-=weights[i];if(r<=0)return ids[i];}
+  return ids[ids.length-1];
+}
+
+function PokeImage({id}){
+  const small=`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
+  const hd=`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
+  const [src,setSrc]=useState(small);
+  const [isHd,setIsHd]=useState(false);
+  useEffect(()=>{
+    setSrc(small); setIsHd(false);
+    const img=new Image();
+    img.onload=()=>{setSrc(hd);setIsHd(true);};
+    img.onerror=()=>{};
+    img.src=hd;
+    return()=>{img.onload=null;img.onerror=null;};
+  },[id]); // eslint-disable-line
+  return(
+    <img src={src} alt="" onError={()=>setSrc(small)} style={{
+      width:"100%",height:"100%",objectFit:"contain",
+      imageRendering:isHd?"auto":"pixelated",
+      filter:"drop-shadow(0 4px 20px rgba(120,140,255,0.25))",
+    }}/>
+  );
+}
+
+export default function App(){
+  const [screen,setScreen]=useState("home");
+  const [progress,setProgress]=useState({});
+  const [loaded,setLoaded]=useState(false);
+  const [region,setRegion]=useState(null);
+  const [reviewOnly,setReviewOnly]=useState(false);
+  const [question,setQuestion]=useState(null);
+  const [input,setInput]=useState("");
+  const [phase,setPhase]=useState("answering");
+  const [wasCorrect,setWasCorrect]=useState(null);
+  const [session,setSession]=useState({correct:0,wrong:0});
+  const regionRef=useRef(null);
+  const reviewRef=useRef(false);
+  const progressRef=useRef({});
+  const inputRef=useRef(null);
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const r=await storage.get("pokemon-progress");
+        if(r?.value){const p=JSON.parse(r.value);setProgress(p);progressRef.current=p;}
+      }catch{}
+      setLoaded(true);
+    })();
+  },[]);
+
+  const save=useCallback(async p=>{
+    try{await storage.set("pokemon-progress",JSON.stringify(p));}catch{}
+  },[]);
+
+  const nextQuestion=useCallback((r,rOnly,prog)=>{
+    setInput("");setPhase("answering");setWasCorrect(null);setQuestion(null);
+    const id=selectId(r,prog,rOnly);
+    if(id===null){setQuestion({id:null});return;}
+    setQuestion({id,name:POKE_NAMES[id]||`No.${id}`});
+    setTimeout(()=>inputRef.current?.focus(),80);
+  },[]);
+
+  const startQuiz=(r,rOnly=false)=>{
+    regionRef.current=r;reviewRef.current=rOnly;
+    setRegion(r);setReviewOnly(rOnly);
+    setSession({correct:0,wrong:0});
+    setScreen("quiz");
+    nextQuestion(r,rOnly,progressRef.current);
+  };
+
+  const submitAnswer=(giveUp=false)=>{
+    if(phase!=="answering"||!question?.name) return;
+    const correct=!giveUp&&checkAnswer(input,question.name);
+    setWasCorrect(correct);setPhase("result");
+    const curBox=progress[question.id]??0;
+    const newProg={...progress,[question.id]:correct?Math.min(curBox+1,4):0};
+    progressRef.current=newProg;setProgress(newProg);save(newProg);
+    setSession(s=>({correct:s.correct+(correct?1:0),wrong:s.wrong+(correct?0:1)}));
+  };
+
+  const handleKey=e=>{
+    if(e.key!=="Enter") return;
+    if(phase==="answering") submitAnswer();
+    else nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
+  };
+
+  if(screen==="home") return(
+    <div style={S.page}>
+      <div style={S.homeWrap}>
+        <div style={{fontSize:50,filter:"drop-shadow(0 0 18px #facc1570)",marginBottom:6}}>⚡</div>
+        <h1 style={S.homeTitle}>ポケモン名前クイズ</h1>
+        <p style={S.homeSub}>Ankiスタイルで全1025匹を制覇しよう</p>
+        {!loaded&&<p style={{color:"#475569",fontSize:13}}>準備中...</p>}
+        {loaded&&<>
+          <div style={S.regionList}>
+            {REGIONS.map(r=>{
+              const {total,boxes}=getStats(r,progress);
+              const mastered=boxes[3]+boxes[4];
+              const pct=Math.round((mastered/total)*100);
+              const unknown=boxes[0];
+              return(
+                <div key={r.name} style={S.regionCard}>
+                  <div style={S.rcHead}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{fontSize:20}}>{r.emoji}</span>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:15,color:"#f1f5f9"}}>{r.name}</div>
+                        <div style={{fontSize:10,color:"#475569"}}>No.{r.min}–{r.max} / {total}匹</div>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:18,fontWeight:800,color:r.color}}>{pct}%</div>
+                      <div style={{fontSize:10,color:"#475569"}}>{mastered}/{total} 習熟</div>
+                    </div>
+                  </div>
+                  <div style={S.miniBar}>
+                    {boxes.map((cnt,i)=>cnt>0&&<div key={i} style={{height:"100%",width:`${(cnt/total)*100}%`,background:BOX_COLORS[i]}}/>)}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>startQuiz(r,false)} style={{...S.btnP,background:r.color}}>通常モード</button>
+                    <button onClick={()=>startQuiz(r,true)} disabled={unknown===0}
+                      style={{...S.btnO,borderColor:unknown>0?r.color:"#1e293b",color:unknown>0?r.color:"#334155",cursor:unknown>0?"pointer":"not-allowed"}}>
+                      復習のみ {unknown>0?`(${unknown})`:"✓"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",gap:12,marginTop:16,flexWrap:"wrap",justifyContent:"center"}}>
+            {BOX_LABELS.map((l,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:BOX_COLORS[i]}}/>
+                <span style={{fontSize:10,color:"#475569"}}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </>}
+      </div>
+    </div>
+  );
+
+  const {correct,wrong}=session;
+  const total=correct+wrong;
+  const curBox=question?.id?(progress[question.id]??0):0;
+  const newBox=question?.id?(progress[question.id]??0):0;
+
+  if(question?.id===null) return(
+    <div style={S.page}>
+      <div style={{...S.card,justifyContent:"center",padding:"48px 24px",gap:16}}>
+        <div style={{fontSize:56}}>🎉</div>
+        <h2 style={{color:"#f1f5f9",margin:0,textAlign:"center"}}>完璧！</h2>
+        <p style={{color:"#64748b",textAlign:"center",fontSize:14,margin:0}}>{region.name}の未習得ポケモンはいません</p>
+        <button onClick={()=>setScreen("home")} style={{...S.btnP,background:region.color,marginTop:8}}>← ホームへ</button>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={S.page}>
+      <div style={S.header}>
+        <button onClick={()=>setScreen("home")} style={S.backBtn}>← ホーム</button>
+        <div style={{textAlign:"center"}}>
+          <div style={{color:region.color,fontWeight:700,fontSize:13}}>{region.emoji} {region.name}</div>
+          <div style={{color:"#334155",fontSize:11}}>{reviewOnly?"復習モード":"通常モード"}</div>
+        </div>
+        <div style={{textAlign:"right",fontSize:14,minWidth:52}}>
+          {total>0
+            ?<><span style={{color:"#4ade80",fontWeight:800}}>{correct}</span><span style={{color:"#334155"}}> / {total}</span></>
+            :<span style={{color:"#1e293b",fontSize:11}}>スタート！</span>
+          }
+        </div>
+      </div>
+      <div style={S.card}>
+        {question?.id&&(
+          <div style={{alignSelf:"flex-end",...S.boxBadge,background:`${BOX_COLORS[curBox]}18`,border:`1px solid ${BOX_COLORS[curBox]}50`,color:BOX_COLORS[curBox]}}>
+            {BOX_LABELS[curBox]}
+          </div>
+        )}
+        <div style={S.imgWrap}>
+          {question?.id&&<PokeImage key={question.id} id={question.id}/>}
+        </div>
+        {question?.id&&(
+          <div style={{color:"#1e293b",fontSize:11,letterSpacing:1,marginBottom:14}}>
+            No.{String(question.id).padStart(4,"0")}
+          </div>
+        )}
+        {question?.name&&phase==="answering"&&(
+          <>
+            <p style={{color:"#475569",fontSize:13,margin:"0 0 10px"}}>
+              このポケモンの名前は？<span style={{color:"#334155",fontSize:11}}> カタカナで入力</span>
+            </p>
+            <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)}
+              onKeyDown={handleKey} style={S.input} autoComplete="off" autoCorrect="off" spellCheck="false"/>
+            <div style={{display:"flex",gap:8,marginTop:10,width:"100%"}}>
+              <button onClick={()=>submitAnswer(true)} style={S.giveUpBtn}>わからない</button>
+              <button onClick={()=>submitAnswer(false)} style={{...S.answerBtn,background:region.color}}>こたえる</button>
+            </div>
+          </>
+        )}
+        {phase==="result"&&question?.id&&(
+          <div style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+            {wasCorrect?(
+              <div style={{...S.resultBox,background:"#4ade8012",border:"1px solid #4ade8040"}}>
+                <span style={{fontSize:28}}>⭕</span>
+                <span style={{fontSize:24,fontWeight:900,color:"#4ade80",letterSpacing:1.5}}>{question.name}</span>
+              </div>
+            ):(
+              <div style={{...S.resultBox,background:"#f8717112",border:"1px solid #f8717130",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:24}}>❌</span>
+                  {input&&<span style={{color:"#f87171",fontSize:13}}>「{input}」</span>}
+                </div>
+                <div style={{color:"#fbbf24",fontSize:21,fontWeight:900,letterSpacing:1.5}}>正解：{question.name}</div>
+                <div style={{color:"#ef4444",fontSize:11}}>→ 未習得に戻ります</div>
+              </div>
+            )}
+            {wasCorrect&&<div style={{fontSize:12,color:"#334155"}}>{newBox>=4?"🎉 マスター達成！":`→ ${BOX_LABELS[Math.min(newBox,4)]} にアップ`}</div>}
+            <button onClick={()=>nextQuestion(regionRef.current,reviewRef.current,progressRef.current)}
+              onKeyDown={handleKey} style={{...S.answerBtn,background:region.color,width:"100%"}} autoFocus>
+              次へ → <span style={{fontSize:11,opacity:0.6}}>Enter</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const S={
+  page:{minHeight:"100vh",background:"linear-gradient(160deg,#060a10 0%,#0d1117 100%)",display:"flex",flexDirection:"column",alignItems:"center",padding:"16px 14px 56px",fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif",color:"#e2e8f0"},
+  homeWrap:{width:"100%",maxWidth:480,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:18},
+  homeTitle:{fontSize:26,fontWeight:900,margin:"0 0 4px",letterSpacing:"-0.5px",color:"#f8fafc"},
+  homeSub:{fontSize:12,color:"#475569",margin:"0 0 24px"},
+  regionList:{width:"100%",display:"flex",flexDirection:"column",gap:9},
+  regionCard:{background:"rgba(255,255,255,0.035)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:16,padding:"14px 15px",display:"flex",flexDirection:"column",gap:10},
+  rcHead:{display:"flex",justifyContent:"space-between",alignItems:"center"},
+  miniBar:{height:4,borderRadius:4,overflow:"hidden",background:"rgba(255,255,255,0.04)",display:"flex"},
+  btnP:{flex:1,border:"none",borderRadius:10,padding:"9px 0",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
+  btnO:{flex:1,background:"transparent",border:"1px solid",borderRadius:10,padding:"9px 0",fontWeight:600,fontSize:13,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
+  header:{width:"100%",maxWidth:460,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12},
+  backBtn:{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"7px 12px",color:"#475569",cursor:"pointer",fontSize:12,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
+  card:{width:"100%",maxWidth:460,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:24,padding:"18px 20px 22px",display:"flex",flexDirection:"column",alignItems:"center"},
+  boxBadge:{borderRadius:8,padding:"2px 10px",fontSize:11,fontWeight:700,letterSpacing:0.3,marginBottom:6},
+  imgWrap:{width:220,height:220,display:"flex",alignItems:"center",justifyContent:"center"},
+  input:{width:"100%",background:"rgba(255,255,255,0.06)",border:"1.5px solid rgba(255,255,255,0.13)",borderRadius:12,padding:"14px 16px",color:"#f1f5f9",fontSize:20,fontWeight:700,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif",outline:"none",textAlign:"center",letterSpacing:2,boxSizing:"border-box"},
+  answerBtn:{flex:3,border:"none",borderRadius:12,padding:"13px 0",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
+  giveUpBtn:{flex:1,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"13px 0",color:"#475569",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
+  resultBox:{display:"flex",alignItems:"center",justifyContent:"center",gap:12,borderRadius:14,padding:"16px 20px",width:"100%"},
+};
