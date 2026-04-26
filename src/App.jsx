@@ -271,7 +271,6 @@ export default function App(){
     if(e.isComposing) return; // IME変換中のEnterは無視
     // IME確定直後（変換→Enter）の1回目のEnterは「こたえる」にしない
     if(wasComposingRef.current){
-      wasComposingRef.current=false;
       return;
     }
     if(phase==="answering") submitAnswer();
@@ -281,6 +280,9 @@ export default function App(){
   // IME変換が終わったタイミングでフラグをセット
   const handleCompositionEnd=()=>{
     wasComposingRef.current=true;
+    setTimeout(() => {
+      wasComposingRef.current = false;
+    }, 100); // 100ms後にフラグをリセット
   };
 
   const resumeSession=()=>{
