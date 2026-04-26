@@ -205,6 +205,7 @@ export default function App(){
   const progressRef=useRef({});
   const inputRef=useRef(null);
   const questionCountRef=useRef(0);
+  const enterPressedRef=useRef(false);
 
   useEffect(()=>{
     (async()=>{
@@ -270,8 +271,15 @@ export default function App(){
     if(e.key!=="Enter") return;
     // IME変換中のEnterは無視
     if(isComposing) return;
-    if(phase==="answering") submitAnswer();
-    else if(phase==="result") nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
+    // 連続Enter防止
+    if(enterPressedRef.current) return;
+    if(phase==="answering"){
+      enterPressedRef.current = true;
+      submitAnswer();
+      setTimeout(() => enterPressedRef.current = false, 100);
+    } else if(phase==="result") {
+      nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
+    }
   };
 
   const handleCompositionStart=()=>{
@@ -503,7 +511,7 @@ export default function App(){
           </div>
         )}
       </div>
-      <div style={{position:"fixed",bottom:20,left:20}}>
+      <div style={{position:"absolute",bottom:10,left:10}}>
         <button onClick={()=>setImageMode(imageMode === 'hd' ? 'small' : 'hd')} style={{...S.modeBtn, background: imageMode === 'hd' ? '#7c6aff' : '#475569'}}>
           {imageMode === 'hd' ? '軽量' : 'HD'}
         </button>
@@ -525,7 +533,7 @@ const S={
   btnO:{flex:1,background:"transparent",border:"1px solid",borderRadius:10,padding:"9px 0",fontWeight:600,fontSize:13,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
   header:{width:"100%",maxWidth:460,display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12},
   backBtn:{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"7px 12px",color:"#475569",cursor:"pointer",fontSize:12,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
-  card:{width:"100%",maxWidth:460,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:24,padding:"18px 20px 22px",display:"flex",flexDirection:"column",alignItems:"center"},
+  card:{width:"100%",maxWidth:460,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:24,padding:"18px 20px 22px",display:"flex",flexDirection:"column",alignItems:"center",position:"relative"},
   boxBadge:{borderRadius:8,padding:"2px 10px",fontSize:11,fontWeight:700,letterSpacing:0.3,marginBottom:6},
   imgWrap:{width:220,height:220,display:"flex",alignItems:"center",justifyContent:"center"},
   input:{width:"100%",background:"rgba(255,255,255,0.06)",border:"1.5px solid rgba(255,255,255,0.13)",borderRadius:12,padding:"14px 16px",color:"#f1f5f9",fontSize:20,fontWeight:700,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif",outline:"none",textAlign:"center",letterSpacing:2,boxSizing:"border-box"},
