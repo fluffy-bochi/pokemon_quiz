@@ -145,11 +145,12 @@ function getStats(region,progress){
   return {total,boxes};
 }
 
-function selectId(region,progress,reviewOnly){
+function selectId(region,progress,reviewOnly,answeredInSession){
   const ids=[],weights=[];
   for(let id=region.min;id<=region.max;id++){
     const box=progress[id]??0;
     if(reviewOnly&&box>0) continue;
+    if(answeredInSession.has(id)) continue;
     ids.push(id); weights.push(BOX_WEIGHTS[Math.min(box,4)]);
   }
   if(!ids.length) return null;
@@ -159,19 +160,21 @@ function selectId(region,progress,reviewOnly){
   return ids[ids.length-1];
 }
 
-function PokeImage({id}){
+function PokeImage({id, mode}){
   const small=`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
   const hd=`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
-  const [src,setSrc]=useState(small);
-  const [isHd,setIsHd]=useState(false);
+  const [src,setSrc]=useState(mode === 'small' ? small : hd);
+  const [isHd,setIsHd]=useState(mode === 'hd');
   useEffect(()=>{
-    setSrc(small); setIsHd(false);
-    const img=new Image();
-    img.onload=()=>{setSrc(hd);setIsHd(true);};
-    img.onerror=()=>{};
-    img.src=hd;
-    return()=>{img.onload=null;img.onerror=null;};
-  },[id]); // eslint-disable-line
+    setSrc(mode === 'small' ? small : hd); setIsHd(mode === 'hd');
+    if(mode === 'hd'){
+      const img=new Image();
+      img.onload=()=>{setSrc(hd);setIsHd(true);};
+      img.onerror=()=>{};
+      img.src=hd;
+      return()=>{img.onload=null;img.onerror=null;};
+    }
+  },[id, mode]); // eslint-disable-line
   return(
     <img src={src} alt="" onError={()=>setSrc(small)} style={{
       width:"100%",height:"100%",objectFit:"contain",
@@ -194,6 +197,8 @@ export default function App(){
   const [session,setSession]=useState({correct:0,wrong:0});
   const [savedSession,setSavedSession]=useState(null);
   const [questionCount,setQuestionCount]=useState(0);
+  const [answeredInSession,setAnsweredInSession]=useState(new Set());
+  const [imageMode,setImageMode]=useState('hd');
   const regionRef=useRef(null);
   const reviewRef=useRef(false);
   const progressRef=useRef({});
@@ -221,20 +226,21 @@ export default function App(){
 
   const nextQuestion=useCallback((r,rOnly,prog)=>{
     setInput("");setPhase("answering");setWasCorrect(null);setQuestion(null);
-    const id=selectId(r,prog,rOnly);
+    const id=selectId(r,prog,rOnly,answeredInSession);
     if(id===null){setQuestion({id:null});return;}
     const newCount=questionCountRef.current+1;
     questionCountRef.current=newCount;
     setQuestionCount(newCount);
     setQuestion({id,name:POKE_NAMES[id]||`No.${id}`});
     setTimeout(()=>inputRef.current?.focus(),80);
-  },[]);
+  },[answeredInSession]);
 
   const startQuiz=(r,rOnly=false)=>{
     regionRef.current=r;reviewRef.current=rOnly;
     setRegion(r);setReviewOnly(rOnly);
     setSession({correct:0,wrong:0});
     questionCountRef.current=0;setQuestionCount(0);
+    setAnsweredInSession(new Set());
     storage.set(SESSION_KEY,"");setSavedSession(null);
     setScreen("quiz");
     nextQuestion(r,rOnly,progressRef.current);
@@ -249,9 +255,12 @@ export default function App(){
     progressRef.current=newProg;setProgress(newProg);save(newProg);
     const newSess={correct:session.correct+(correct?1:0),wrong:session.wrong+(correct?0:1)};
     setSession(newSess);
+    if(correct){
+      setAnsweredInSession(prev => new Set([...prev, question.id]));
+    }
     // 自動保存
     if(regionRef.current&&question?.id){
-      const data={regionName:regionRef.current.name,reviewOnly:reviewRef.current,questionId:question.id,phase:"result",wasCorrect:correct,input,session:newSess,questionCount:questionCountRef.current};
+      const data={regionName:regionRef.current.name,reviewOnly:reviewRef.current,questionId:question.id,phase:"result",wasCorrect:correct,input,session:newSess,questionCount:questionCountRef.current,answeredInSession:[...answeredInSession]};
       storage.set(SESSION_KEY,JSON.stringify(data));
       setSavedSession(data);
     }
@@ -286,6 +295,7 @@ export default function App(){
     setPhase(savedSession.phase);
     setWasCorrect(savedSession.wasCorrect);
     setInput(savedSession.input||"");
+    setAnsweredInSession(new Set(savedSession.answeredInSession || []));
     setQuestion({id:savedSession.questionId,name:POKE_NAMES[savedSession.questionId]||`No.${savedSession.questionId}`});
     setScreen("quiz");
     if(savedSession.phase==="answering") setTimeout(()=>inputRef.current?.focus(),80);
@@ -356,6 +366,9 @@ export default function App(){
             })}
           </div>
           <div style={{display:"flex",gap:12,marginTop:16,flexWrap:"wrap",justifyContent:"center"}}>
+            <button onClick={()=>setScreen("pokedex")} style={{...S.btnP,background:"#7c6aff"}}>📖 習熟度一覧</button>
+            <button onClick={()=>{navigator.clipboard.writeText(JSON.stringify(progress)); alert('データがクリップボードにコピーされました');}} style={{...S.btnO,borderColor:"#7c6aff",color:"#7c6aff"}}>📤 エクスポート</button>
+            <button onClick={()=>{const data=prompt('JSONデータを貼り付けてください'); if(data){try{const p=JSON.parse(data);setProgress(p);progressRef.current=p;save(p);alert('インポート完了');}catch{alert('無効なデータ');}}}} style={{...S.btnO,borderColor:"#7c6aff",color:"#7c6aff"}}>📥 インポート</button>
             {BOX_LABELS.map((l,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
                 <div style={{width:8,height:8,borderRadius:"50%",background:BOX_COLORS[i]}}/>
@@ -364,6 +377,38 @@ export default function App(){
             ))}
           </div>
         </>}
+      </div>
+    </div>
+  );
+
+  if(screen==="pokedex") return(
+    <div style={S.page}>
+      <div style={S.homeWrap}>
+        <h1 style={S.homeTitle}>📖 習熟度一覧</h1>
+        <p style={S.homeSub}>全国図鑑風にポケモンの習熟度を確認</p>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          <button onClick={()=>setScreen("home")} style={S.backBtn}>← ホーム</button>
+          <button onClick={()=>setImageMode(imageMode === 'hd' ? 'small' : 'hd')} style={{...S.btnP,background: imageMode === 'hd' ? '#7c6aff' : '#475569'}}>
+            {imageMode === 'hd' ? '軽量' : 'HD'}
+          </button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(120px, 1fr))",gap:12,width:"100%",maxWidth:600}}>
+          {Object.keys(POKE_NAMES).map(idStr=>{
+            const id=parseInt(idStr);
+            const box=progress[id]??0;
+            const name=POKE_NAMES[id];
+            return(
+              <div key={id} style={{...S.pokeCard,borderColor:BOX_COLORS[box]}}>
+                <div style={{width:80,height:80,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <PokeImage id={id} mode={imageMode}/>
+                </div>
+                <div style={{fontSize:10,color:"#475569",textAlign:"center"}}>No.{String(id).padStart(4,"0")}</div>
+                <div style={{fontSize:12,fontWeight:700,color:"#f1f5f9",textAlign:"center"}}>{name}</div>
+                <div style={{fontSize:10,color:BOX_COLORS[box],textAlign:"center"}}>{BOX_LABELS[box]}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -401,19 +446,19 @@ export default function App(){
         </div>
         <div style={{textAlign:"right",fontSize:14,minWidth:64}}>
           {questionCount>0
-            ?<><span style={{color:"#e2e8f0",fontWeight:800}}>{questionCount}問目</span><span style={{color:"#334155"}}> / {total}問</span></>
+            ?<><span style={{color:"#e2e8f0",fontWeight:800}}>{session.correct}</span><span style={{color:"#334155"}}> / {reviewOnly ? getStats(region, progress).boxes[0] : (region.max - region.min + 1)}</span></>
             :<span style={{color:"#1e293b",fontSize:11}}>スタート！</span>
           }
         </div>
       </div>
       <div style={S.card}>
         {question?.id&&(
-          <div style={{alignSelf:"flex-end",...S.boxBadge,background:`${BOX_COLORS[curBox]}18`,border:`1px solid ${BOX_COLORS[curBox]}50`,color:BOX_COLORS[curBox]}}>
+          <div style={{...S.boxBadge,background:`${BOX_COLORS[curBox]}18`,border:`1px solid ${BOX_COLORS[curBox]}50`,color:BOX_COLORS[curBox]}}>
             {BOX_LABELS[curBox]}
           </div>
         )}
         <div style={S.imgWrap}>
-          {question?.id&&<PokeImage key={question.id} id={question.id}/>}
+          {question?.id&&<PokeImage key={question.id} id={question.id} mode={imageMode}/>}
         </div>
         {question?.id&&(
           <div style={{color:"#1e293b",fontSize:11,letterSpacing:1,marginBottom:14}}>
@@ -459,6 +504,11 @@ export default function App(){
           </div>
         )}
       </div>
+      <div style={{position:"fixed",bottom:20,left:20}}>
+        <button onClick={()=>setImageMode(imageMode === 'hd' ? 'small' : 'hd')} style={{...S.modeBtn, background: imageMode === 'hd' ? '#7c6aff' : '#475569'}}>
+          {imageMode === 'hd' ? '軽量' : 'HD'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -483,5 +533,6 @@ const S={
   answerBtn:{flex:3,border:"none",borderRadius:12,padding:"13px 0",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
   giveUpBtn:{flex:1,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,padding:"13px 0",color:"#475569",fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
   resultBox:{display:"flex",alignItems:"center",justifyContent:"center",gap:12,borderRadius:14,padding:"16px 20px",width:"100%"},
-  resumeCard:{background:"rgba(124,106,255,0.08)",border:"1px solid rgba(124,106,255,0.25)",borderRadius:16,padding:"14px 15px",display:"flex",flexDirection:"column",gap:10,width:"100%",marginBottom:8},
+  modeBtn:{background:"transparent",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"8px 12px",color:"#475569",cursor:"pointer",fontSize:12,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
+  pokeCard:{background:"rgba(255,255,255,0.035)",border:"1px solid",borderRadius:12,padding:"12px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:4},
 };
