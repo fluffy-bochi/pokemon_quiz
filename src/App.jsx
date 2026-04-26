@@ -149,7 +149,7 @@ function selectId(region,progress,reviewOnly,answeredInSession){
   const ids=[],weights=[];
   for(let id=region.min;id<=region.max;id++){
     const box=progress[id]??0;
-    if(reviewOnly&&box>0) continue;
+    if(reviewOnly&&box>2) continue;
     if(answeredInSession.has(id)) continue;
     ids.push(id); weights.push(BOX_WEIGHTS[Math.min(box,4)]);
   }
@@ -200,6 +200,7 @@ export default function App(){
   const [answeredInSession,setAnsweredInSession]=useState(new Set());
   const [imageMode,setImageMode]=useState('hd');
   const [isComposing,setIsComposing]=useState(false);
+  const [totalPokes,setTotalPokes]=useState(0);
   const regionRef=useRef(null);
   const reviewRef=useRef(false);
   const progressRef=useRef({});
@@ -242,6 +243,7 @@ export default function App(){
     setSession({correct:0,wrong:0});
     questionCountRef.current=0;setQuestionCount(0);
     setAnsweredInSession(new Set());
+    setTotalPokes(rOnly ? getStats(r, progress).boxes[0] : (r.max - r.min + 1));
     storage.set(SESSION_KEY,"");setSavedSession(null);
     setScreen("quiz");
     nextQuestion(r,rOnly,progressRef.current);
@@ -261,7 +263,7 @@ export default function App(){
     }
     // 自動保存
     if(regionRef.current&&question?.id){
-      const data={regionName:regionRef.current.name,reviewOnly:reviewRef.current,questionId:question.id,phase:"result",wasCorrect:correct,input,session:newSess,questionCount:questionCountRef.current,answeredInSession:[...answeredInSession]};
+      const data={regionName:regionRef.current.name,reviewOnly:reviewRef.current,questionId:question.id,phase:"result",wasCorrect:correct,input,session:newSess,questionCount:questionCountRef.current,answeredInSession:[...answeredInSession],totalPokes};
       storage.set(SESSION_KEY,JSON.stringify(data));
       setSavedSession(data);
     }
@@ -276,7 +278,7 @@ export default function App(){
     if(phase==="answering"){
       enterPressedRef.current = true;
       submitAnswer();
-      setTimeout(() => enterPressedRef.current = false, 100);
+      setTimeout(() => enterPressedRef.current = false, 200);
     } else if(phase==="result") {
       nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
     }
@@ -303,6 +305,7 @@ export default function App(){
     setWasCorrect(savedSession.wasCorrect);
     setInput(savedSession.input||"");
     setAnsweredInSession(new Set(savedSession.answeredInSession || []));
+    setTotalPokes(savedSession.totalPokes || (savedSession.reviewOnly ? getStats(r, progress).boxes[0] : (r.max - r.min + 1)));
     setQuestion({id:savedSession.questionId,name:POKE_NAMES[savedSession.questionId]||`No.${savedSession.questionId}`});
     setScreen("quiz");
     if(savedSession.phase==="answering") setTimeout(()=>inputRef.current?.focus(),80);
@@ -453,7 +456,7 @@ export default function App(){
         </div>
         <div style={{textAlign:"right",fontSize:14,minWidth:64}}>
           {questionCount>0
-            ?<><span style={{color:"#e2e8f0",fontWeight:800}}>{session.correct}</span><span style={{color:"#334155"}}> / {reviewOnly ? getStats(region, progress).boxes[0] : (region.max - region.min + 1)}</span></>
+            ?<><span style={{color:"#e2e8f0",fontWeight:800}}>{session.correct}</span><span style={{color:"#334155"}}> / {totalPokes}</span></>
             :<span style={{color:"#1e293b",fontSize:11}}>スタート！</span>
           }
         </div>
