@@ -199,12 +199,12 @@ export default function App(){
   const [questionCount,setQuestionCount]=useState(0);
   const [answeredInSession,setAnsweredInSession]=useState(new Set());
   const [imageMode,setImageMode]=useState('hd');
+  const [isComposing,setIsComposing]=useState(false);
   const regionRef=useRef(null);
   const reviewRef=useRef(false);
   const progressRef=useRef({});
   const inputRef=useRef(null);
   const questionCountRef=useRef(0);
-  const wasComposingRef=useRef(false); // IME変換確定直後フラグ
 
   useEffect(()=>{
     (async()=>{
@@ -268,21 +268,18 @@ export default function App(){
 
   const handleKey=e=>{
     if(e.key!=="Enter") return;
-    if(e.isComposing) return; // IME変換中のEnterは無視
-    // IME確定直後（変換→Enter）の1回目のEnterは「こたえる」にしない
-    if(wasComposingRef.current){
-      return;
-    }
+    // IME変換中のEnterは無視
+    if(isComposing) return;
     if(phase==="answering") submitAnswer();
     else if(phase==="result") nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
   };
 
-  // IME変換が終わったタイミングでフラグをセット
+  const handleCompositionStart=()=>{
+    setIsComposing(true);
+  };
+
   const handleCompositionEnd=()=>{
-    wasComposingRef.current=true;
-    setTimeout(() => {
-      wasComposingRef.current = false;
-    }, 100); // 100ms後にフラグをリセット
+    setIsComposing(false);
   };
 
   const resumeSession=()=>{
@@ -473,7 +470,7 @@ export default function App(){
               このポケモンの名前は？<span style={{color:"#334155",fontSize:11}}> カタカナで入力</span>
             </p>
             <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)}
-              onKeyDown={handleKey} onCompositionEnd={handleCompositionEnd}
+              onKeyDown={handleKey} onCompositionStart={handleCompositionStart} onCompositionEnd={handleCompositionEnd}
               style={S.input} autoComplete="off" autoCorrect="off" spellCheck="false"/>
             <div style={{display:"flex",gap:8,marginTop:10,width:"100%"}}>
               <button onClick={()=>submitAnswer(true)} style={S.giveUpBtn}>わからない</button>
