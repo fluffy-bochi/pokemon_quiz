@@ -176,7 +176,7 @@ function PokeImage({id, mode}){
     }
   },[id, mode]); // eslint-disable-line
   return(
-    <img src={src} alt="" onError={()=>setSrc(small)} style={{
+    <img src={src} alt="" loading="lazy" onError={()=>setSrc(small)} style={{
       width:"100%",height:"100%",objectFit:"contain",
       imageRendering:isHd?"auto":"pixelated",
       filter:"drop-shadow(0 4px 20px rgba(120,140,255,0.25))",
@@ -207,6 +207,7 @@ export default function App(){
   const inputRef=useRef(null);
   const questionCountRef=useRef(0);
   const enterPressedRef=useRef(false);
+  const resultTimeRef=useRef(0);
 
   useEffect(()=>{
     (async()=>{
@@ -243,7 +244,8 @@ export default function App(){
     setSession({correct:0,wrong:0});
     questionCountRef.current=0;setQuestionCount(0);
     setAnsweredInSession(new Set());
-    setTotalPokes(rOnly ? getStats(r, progress).boxes[0] : (r.max - r.min + 1));
+    const s=getStats(r,progress);
+    setTotalPokes(rOnly ? (s.boxes[0]+s.boxes[1]+s.boxes[2]) : (r.max - r.min + 1));
     storage.set(SESSION_KEY,"");setSavedSession(null);
     setScreen("quiz");
     nextQuestion(r,rOnly,progressRef.current);
@@ -253,6 +255,7 @@ export default function App(){
     if(phase!=="answering"||!question?.name) return;
     const correct=!giveUp&&checkAnswer(input,question.name);
     setWasCorrect(correct);setPhase("result");
+    resultTimeRef.current=Date.now();
     const curBox=progress[question.id]??0;
     const newProg={...progress,[question.id]:correct?Math.min(curBox+1,4):0};
     progressRef.current=newProg;setProgress(newProg);save(newProg);
@@ -280,6 +283,7 @@ export default function App(){
       submitAnswer();
       setTimeout(() => enterPressedRef.current = false, 200);
     } else if(phase==="result") {
+      if(Date.now()-resultTimeRef.current<400) return;
       nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
     }
   };
@@ -305,7 +309,8 @@ export default function App(){
     setWasCorrect(savedSession.wasCorrect);
     setInput(savedSession.input||"");
     setAnsweredInSession(new Set(savedSession.answeredInSession || []));
-    setTotalPokes(savedSession.totalPokes || (savedSession.reviewOnly ? getStats(r, progress).boxes[0] : (r.max - r.min + 1)));
+    const rs=getStats(r,progress);
+    setTotalPokes(savedSession.totalPokes || (savedSession.reviewOnly ? (rs.boxes[0]+rs.boxes[1]+rs.boxes[2]) : (r.max - r.min + 1)));
     setQuestion({id:savedSession.questionId,name:POKE_NAMES[savedSession.questionId]||`No.${savedSession.questionId}`});
     setScreen("quiz");
     if(savedSession.phase==="answering") setTimeout(()=>inputRef.current?.focus(),80);
@@ -345,7 +350,7 @@ export default function App(){
               const {total,boxes}=getStats(r,progress);
               const mastered=boxes[3]+boxes[4];
               const pct=Math.round((mastered/total)*100);
-              const unknown=boxes[0];
+              const reviewable=boxes[0]+boxes[1]+boxes[2];
               return(
                 <div key={r.name} style={S.regionCard}>
                   <div style={S.rcHead}>
@@ -366,9 +371,9 @@ export default function App(){
                   </div>
                   <div style={{display:"flex",gap:8}}>
                     <button onClick={()=>startQuiz(r,false)} style={{...S.btnP,background:r.color}}>通常モード</button>
-                    <button onClick={()=>startQuiz(r,true)} disabled={unknown===0}
-                      style={{...S.btnO,borderColor:unknown>0?r.color:"#1e293b",color:unknown>0?r.color:"#334155",cursor:unknown>0?"pointer":"not-allowed"}}>
-                      復習のみ {unknown>0?`(${unknown})`:"✓"}
+                    <button onClick={()=>startQuiz(r,true)} disabled={reviewable===0}
+                      style={{...S.btnO,borderColor:reviewable>0?r.color:"#1e293b",color:reviewable>0?r.color:"#334155",cursor:reviewable>0?"pointer":"not-allowed"}}>
+                      復習のみ {reviewable>0?`(${reviewable})`:"✓"}
                     </button>
                   </div>
                 </div>
@@ -433,7 +438,7 @@ export default function App(){
       <div style={{...S.card,justifyContent:"center",padding:"48px 24px",gap:16}}>
         <div style={{fontSize:56}}>🎉</div>
         <h2 style={{color:"#f1f5f9",margin:0,textAlign:"center"}}>完璧！</h2>
-        <p style={{color:"#64748b",textAlign:"center",fontSize:14,margin:0}}>{region.name}の未習得ポケモンはいません</p>
+        <p style={{color:"#64748b",textAlign:"center",fontSize:14,margin:0}}>{reviewOnly?`${region.name}の復習対象ポケモンはいません`:`${region.name}の未習得ポケモンはいません`}</p>
         <button onClick={()=>{storage.set(SESSION_KEY,"");setSavedSession(null);setScreen("home");}} style={{...S.btnP,background:region.color,marginTop:8}}>← ホームへ</button>
       </div>
     </div>
@@ -507,17 +512,17 @@ export default function App(){
               </div>
             )}
             {wasCorrect&&<div style={{fontSize:12,color:"#334155"}}>{newBox>=4?"🎉 マスター達成！":`→ ${BOX_LABELS[Math.min(newBox,4)]} にアップ`}</div>}
-            <button onClick={()=>nextQuestion(regionRef.current,reviewRef.current,progressRef.current)}
+            <button onClick={()=>{if(Date.now()-resultTimeRef.current<400)return;nextQuestion(regionRef.current,reviewRef.current,progressRef.current);}}
               onKeyDown={handleKey} style={{...S.answerBtn,background:region.color,width:"100%"}} autoFocus>
               次へ → <span style={{fontSize:11,opacity:0.6}}>Enter</span>
             </button>
           </div>
         )}
-      </div>
-      <div style={{position:"absolute",bottom:10,left:10}}>
-        <button onClick={()=>setImageMode(imageMode === 'hd' ? 'small' : 'hd')} style={{...S.modeBtn, background: imageMode === 'hd' ? '#7c6aff' : '#475569'}}>
-          {imageMode === 'hd' ? '軽量' : 'HD'}
-        </button>
+        <div style={{position:"absolute",bottom:10,left:10}}>
+          <button onClick={()=>setImageMode(imageMode === 'hd' ? 'small' : 'hd')} style={{...S.modeBtn, background: imageMode === 'hd' ? '#7c6aff' : '#475569'}}>
+            {imageMode === 'hd' ? '軽量' : 'HD'}
+          </button>
+        </div>
       </div>
     </div>
   );
