@@ -11,6 +11,9 @@ const storage = {
 };
 
 const SESSION_KEY = "pokemon-quiz-session";
+const SRS_KEY = "pokemon-srs";
+const MAX_REVIEW = 20;
+const MAX_NEW = 5;
 
 const POKE_NAMES = {
   1:"フシギダネ",2:"フシギソウ",3:"フシギバナ",4:"ヒトカゲ",5:"リザード",6:"リザードン",7:"ゼニガメ",8:"カメール",9:"カメックス",10:"キャタピー",
@@ -135,6 +138,68 @@ const BOX_WEIGHTS=[12,6,3,1,0.3];
 const BOX_COLORS=["#ef4444","#f97316","#eab308","#22c55e","#60a5fa"];
 const BOX_LABELS=["未習得","学習中","定着中","習熟","マスター"];
 
+// ── SRS helpers ──────────────────────────────────────────────────────────────
+function getTodayStr(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+function addDays(dateStr,n){
+  const d=new Date(dateStr+"T00:00:00");
+  d.setDate(d.getDate()+n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+// rating: 'again' | 'hard' | 'good' | 'easy'
+function calcSrsUpdate(card,rating){
+  const today=getTodayStr();
+  const rc=card.reviewCount??0;
+  let {interval=1,easeFactor=2.5,lapses=0}=card;
+  if(rating==="again"){
+    return{interval:1,easeFactor:Math.max(1.3,easeFactor),lapses:lapses+1,reviewCount:0,nextReview:today};
+  }
+  if(rating==="hard") easeFactor=Math.max(1.3,easeFactor-0.15);
+  else if(rating==="easy") easeFactor=easeFactor+0.15;
+  let newInterval;
+  if(rc===0) newInterval=1;
+  else if(rc===1) newInterval=4;
+  else{
+    if(rating==="hard") newInterval=Math.round(interval*1.2);
+    else if(rating==="easy") newInterval=Math.round(interval*easeFactor*1.3);
+    else newInterval=Math.round(interval*easeFactor);
+    newInterval=Math.max(1,newInterval);
+  }
+  return{interval:newInterval,easeFactor,lapses,reviewCount:rc+1,nextReview:addDays(today,newInterval)};
+}
+
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}
+  return arr;
+}
+
+function buildReviewQueue(srsData){
+  const today=getTodayStr();
+  const due=[],newCards=[];
+  for(const[idStr,card]of Object.entries(srsData)){
+    if(card.nextReview<=today) due.push(parseInt(idStr));
+  }
+  const srsIds=new Set(Object.keys(srsData).map(Number));
+  for(let id=1;id<=1025;id++){if(!srsIds.has(id)) newCards.push(id);}
+  shuffle(due); shuffle(newCards);
+  return [...due.slice(0,MAX_REVIEW),...newCards.slice(0,MAX_NEW)];
+}
+
+function getSrsStats(srsData){
+  const today=getTodayStr();
+  const tomorrow=addDays(today,1);
+  const ids=Object.keys(srsData);
+  const dueToday=ids.filter(id=>srsData[id].nextReview<=today).length;
+  const dueTomorrow=ids.filter(id=>srsData[id].nextReview>today&&srsData[id].nextReview<=tomorrow).length;
+  const newAvail=Math.min(MAX_NEW,1025-ids.length);
+  return{dueToday,dueTomorrow,newAvail};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 function normalizeColon(s){return s.replace(/:/g,"：").trim();}
 function checkAnswer(input,name){return normalizeColon(input)===normalizeColon(name);}
 
@@ -201,12 +266,20 @@ export default function App(){
   const [imageMode,setImageMode]=useState('hd');
   const [isComposing,setIsComposing]=useState(false);
   const [totalPokes,setTotalPokes]=useState(0);
+  // SRS state
+  const [srsData,setSrsData]=useState({});
+  const [isReviewMode,setIsReviewMode]=useState(false);
   const regionRef=useRef(null);
   const reviewRef=useRef(false);
   const progressRef=useRef({});
   const inputRef=useRef(null);
   const questionCountRef=useRef(0);
   const enterPressedRef=useRef(false);
+  // SRS refs
+  const srsDataRef=useRef({});
+  const isReviewModeRef=useRef(false);
+  const reviewQueueRef=useRef([]);
+  const againQueueRef=useRef([]);
 
   useEffect(()=>{
     (async()=>{
@@ -218,6 +291,10 @@ export default function App(){
         const s=await storage.get(SESSION_KEY);
         if(s?.value){const d=JSON.parse(s.value);if(d?.questionId) setSavedSession(d);}
       }catch{}
+      try{
+        const srs=await storage.get(SRS_KEY);
+        if(srs?.value){const d=JSON.parse(srs.value);setSrsData(d);srsDataRef.current=d;}
+      }catch{}
       setLoaded(true);
     })();
   },[]);
@@ -225,6 +302,62 @@ export default function App(){
   const save=useCallback(async p=>{
     try{await storage.set("pokemon-progress",JSON.stringify(p));}catch{}
   },[]);
+
+  const saveSrs=useCallback(async d=>{
+    try{await storage.set(SRS_KEY,JSON.stringify(d));}catch{}
+  },[]);
+
+  // 復習モード: キューから次の問題を取得
+  const nextReviewQuestion=useCallback(()=>{
+    setInput("");setPhase("answering");setWasCorrect(null);setQuestion(null);
+    let id=reviewQueueRef.current.shift();
+    if(id===undefined&&againQueueRef.current.length>0){
+      reviewQueueRef.current=shuffle([...againQueueRef.current]);
+      againQueueRef.current=[];
+      id=reviewQueueRef.current.shift();
+    }
+    if(id===undefined){setQuestion({id:null});return;}
+    const newCount=questionCountRef.current+1;
+    questionCountRef.current=newCount;setQuestionCount(newCount);
+    setQuestion({id,name:POKE_NAMES[id]||`No.${id}`});
+    setTimeout(()=>inputRef.current?.focus(),80);
+  },[]);
+
+  // 4段階評価ボタン押下
+  const applyRating=useCallback((rating)=>{
+    if(!question?.id) return;
+    const card=srsDataRef.current[question.id]??{interval:1,easeFactor:2.5,lapses:0,reviewCount:0};
+    const updated=calcSrsUpdate(card,rating);
+    const newSrs={...srsDataRef.current,[question.id]:updated};
+    srsDataRef.current=newSrs;setSrsData(newSrs);saveSrs(newSrs);
+    const correct=rating!=="again";
+    setSession(s=>({correct:s.correct+(correct?1:0),wrong:s.wrong+(correct?0:1)}));
+    if(rating==="again") againQueueRef.current.push(question.id);
+    nextReviewQuestion();
+  },[question,saveSrs,nextReviewQuestion]);
+
+  const startReview=()=>{
+    const queue=buildReviewQueue(srsDataRef.current);
+    reviewQueueRef.current=queue;againQueueRef.current=[];
+    isReviewModeRef.current=true;setIsReviewMode(true);
+    setRegion(REGIONS[0]);regionRef.current=REGIONS[0];
+    reviewRef.current=false;setReviewOnly(false);
+    setSession({correct:0,wrong:0});
+    questionCountRef.current=0;setQuestionCount(0);
+    setAnsweredInSession(new Set());
+    setTotalPokes(queue.length);
+    storage.set(SESSION_KEY,"");setSavedSession(null);
+    setScreen("quiz");
+    // nextReviewQuestion をここで呼ぶと stale closure になるため直接処理
+    setTimeout(()=>{
+      setInput("");setPhase("answering");setWasCorrect(null);setQuestion(null);
+      const id=reviewQueueRef.current.shift();
+      if(id===undefined){setQuestion({id:null});return;}
+      questionCountRef.current=1;setQuestionCount(1);
+      setQuestion({id,name:POKE_NAMES[id]||`No.${id}`});
+      setTimeout(()=>inputRef.current?.focus(),80);
+    },0);
+  };
 
   const nextQuestion=useCallback((r,rOnly,prog)=>{
     setInput("");setPhase("answering");setWasCorrect(null);setQuestion(null);
@@ -238,6 +371,7 @@ export default function App(){
   },[answeredInSession]);
 
   const startQuiz=(r,rOnly=false)=>{
+    isReviewModeRef.current=false;setIsReviewMode(false);
     regionRef.current=r;reviewRef.current=rOnly;
     setRegion(r);setReviewOnly(rOnly);
     setSession({correct:0,wrong:0});
@@ -253,15 +387,27 @@ export default function App(){
     if(phase!=="answering"||!question?.name) return;
     const correct=!giveUp&&checkAnswer(input,question.name);
     setWasCorrect(correct);setPhase("result");
+
+    if(isReviewModeRef.current){
+      // 復習モードでは評価ボタン押下時にSRS更新するため、ここでは何もしない
+      return;
+    }
+
+    // 通常モード: ボックス更新
     const curBox=progress[question.id]??0;
     const newProg={...progress,[question.id]:correct?Math.min(curBox+1,4):0};
     progressRef.current=newProg;setProgress(newProg);save(newProg);
+
+    // 不正解 → SRSに未登録なら今日のキューへ自動追加
+    if(!correct&&!srsDataRef.current[question.id]){
+      const newCard={interval:1,easeFactor:2.5,lapses:1,reviewCount:0,nextReview:getTodayStr()};
+      const newSrs={...srsDataRef.current,[question.id]:newCard};
+      srsDataRef.current=newSrs;setSrsData(newSrs);saveSrs(newSrs);
+    }
+
     const newSess={correct:session.correct+(correct?1:0),wrong:session.wrong+(correct?0:1)};
     setSession(newSess);
-    if(correct){
-      setAnsweredInSession(prev => new Set([...prev, question.id]));
-    }
-    // 自動保存
+    if(correct) setAnsweredInSession(prev=>new Set([...prev,question.id]));
     if(regionRef.current&&question?.id){
       const data={regionName:regionRef.current.name,reviewOnly:reviewRef.current,questionId:question.id,phase:"result",wasCorrect:correct,input,session:newSess,questionCount:questionCountRef.current,answeredInSession:[...answeredInSession],totalPokes};
       storage.set(SESSION_KEY,JSON.stringify(data));
@@ -279,7 +425,7 @@ export default function App(){
       enterPressedRef.current = true;
       submitAnswer();
       setTimeout(() => enterPressedRef.current = false, 200);
-    } else if(phase==="result") {
+    } else if(phase==="result"&&!isReviewModeRef.current) {
       nextQuestion(regionRef.current,reviewRef.current,progressRef.current);
     }
   };
@@ -340,6 +486,36 @@ export default function App(){
               </div>
             </div>
           )}
+          {(()=>{
+            const{dueToday,dueTomorrow,newAvail}=getSrsStats(srsData);
+            const sessionSize=Math.min(dueToday,MAX_REVIEW)+Math.min(newAvail,MAX_NEW);
+            return(
+              <div style={{...S.regionCard,borderColor:"rgba(124,106,255,0.3)",marginBottom:4}}>
+                <div style={S.rcHead}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:20}}>📅</span>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:15,color:"#f1f5f9"}}>復習モード</div>
+                      <div style={{fontSize:10,color:"#475569"}}>間隔反復（Anki方式）</div>
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:18,fontWeight:800,color:"#7c6aff"}}>{dueToday}</div>
+                    <div style={{fontSize:10,color:"#475569"}}>今日の復習</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:16,fontSize:11,color:"#475569"}}>
+                  <span>🆕 新規 {newAvail}匹</span>
+                  {dueTomorrow>0&&<span>📆 明日 {dueTomorrow}匹</span>}
+                  <span>合計 {Object.keys(srsData).length}匹登録済み</span>
+                </div>
+                <button onClick={startReview} disabled={sessionSize===0}
+                  style={{...S.btnP,background:sessionSize>0?"#7c6aff":"#1e293b",cursor:sessionSize>0?"pointer":"not-allowed"}}>
+                  {sessionSize>0?`復習を始める（${sessionSize}匹）`:"今日の復習は完了！"}
+                </button>
+              </div>
+            );
+          })()}
           <div style={S.regionList}>
             {REGIONS.map(r=>{
               const {total,boxes}=getStats(r,progress);
@@ -428,6 +604,38 @@ export default function App(){
   const curBox=question?.id?(progress[question.id]??0):0;
   const newBox=question?.id?(progress[question.id]??0):0;
 
+  if(question?.id===null&&isReviewMode){
+    const{dueToday:nextDue}=getSrsStats(srsData);
+    return(
+      <div style={S.page}>
+        <div style={{...S.card,justifyContent:"center",padding:"48px 24px",gap:16}}>
+          <div style={{fontSize:56}}>🎊</div>
+          <h2 style={{color:"#f1f5f9",margin:0,textAlign:"center"}}>今日の復習完了！</h2>
+          <div style={{display:"flex",gap:24,justifyContent:"center"}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:24,fontWeight:800,color:"#4ade80"}}>{session.correct}</div>
+              <div style={{fontSize:11,color:"#475569"}}>正解</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:24,fontWeight:800,color:"#f87171"}}>{session.wrong}</div>
+              <div style={{fontSize:11,color:"#475569"}}>もう一度</div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:24,fontWeight:800,color:"#e2e8f0"}}>{questionCount}</div>
+              <div style={{fontSize:11,color:"#475569"}}>問</div>
+            </div>
+          </div>
+          {nextDue>0
+            ?<p style={{color:"#64748b",textAlign:"center",fontSize:13,margin:0}}>次の復習：今日あと {nextDue} 匹</p>
+            :<p style={{color:"#64748b",textAlign:"center",fontSize:13,margin:0}}>今日の復習はすべて完了 🎉</p>
+          }
+          <button onClick={()=>{isReviewModeRef.current=false;setIsReviewMode(false);storage.set(SESSION_KEY,"");setSavedSession(null);setScreen("home");}}
+            style={{...S.btnP,background:"#7c6aff",marginTop:8}}>← ホームへ</button>
+        </div>
+      </div>
+    );
+  }
+
   if(question?.id===null) return(
     <div style={S.page}>
       <div style={{...S.card,justifyContent:"center",padding:"48px 24px",gap:16}}>
@@ -452,7 +660,7 @@ export default function App(){
         }} style={S.backBtn}>← ホーム</button>
         <div style={{textAlign:"center"}}>
           <div style={{color:region.color,fontWeight:700,fontSize:13}}>{region.emoji} {region.name}</div>
-          <div style={{color:"#334155",fontSize:11}}>{reviewOnly?"復習モード":"通常モード"}</div>
+          <div style={{color:"#334155",fontSize:11}}>{isReviewMode?"📅 間隔復習モード":reviewOnly?"復習のみ":"通常モード"}</div>
         </div>
         <div style={{textAlign:"right",fontSize:14,minWidth:64}}>
           {questionCount>0
@@ -503,14 +711,48 @@ export default function App(){
                   {input&&<span style={{color:"#f87171",fontSize:13}}>「{input}」</span>}
                 </div>
                 <div style={{color:"#fbbf24",fontSize:21,fontWeight:900,letterSpacing:1.5}}>正解：{question.name}</div>
-                <div style={{color:"#ef4444",fontSize:11}}>→ 未習得に戻ります</div>
+                {!isReviewMode&&<div style={{color:"#ef4444",fontSize:11}}>→ 未習得に戻ります</div>}
               </div>
             )}
-            {wasCorrect&&<div style={{fontSize:12,color:"#334155"}}>{newBox>=4?"🎉 マスター達成！":`→ ${BOX_LABELS[Math.min(newBox,4)]} にアップ`}</div>}
-            <button onClick={()=>nextQuestion(regionRef.current,reviewRef.current,progressRef.current)}
-              onKeyDown={handleKey} style={{...S.answerBtn,background:region.color,width:"100%"}} autoFocus>
-              次へ → <span style={{fontSize:11,opacity:0.6}}>Enter</span>
-            </button>
+            {!isReviewMode&&wasCorrect&&<div style={{fontSize:12,color:"#334155"}}>{newBox>=4?"🎉 マスター達成！":`→ ${BOX_LABELS[Math.min(newBox,4)]} にアップ`}</div>}
+
+            {isReviewMode?(()=>{
+              const card=srsDataRef.current[question.id]??{interval:1,easeFactor:2.5,lapses:0,reviewCount:0};
+              const hints={
+                again:"今日",
+                hard:calcSrsUpdate(card,"hard").interval+"日後",
+                good:calcSrsUpdate(card,"good").interval+"日後",
+                easy:calcSrsUpdate(card,"easy").interval+"日後",
+              };
+              return(
+                <>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,width:"100%"}}>
+                    <button onClick={()=>applyRating("again")} style={{...S.ratingBtn,background:"#ef444420",border:"1px solid #ef444460",color:"#f87171"}}>
+                      <span style={{fontSize:13,fontWeight:700}}>もう一度</span>
+                      <span style={{fontSize:10,opacity:0.7}}>{hints.again}</span>
+                    </button>
+                    <button onClick={()=>applyRating("hard")} style={{...S.ratingBtn,background:"#f9731620",border:"1px solid #f9731660",color:"#fb923c"}}>
+                      <span style={{fontSize:13,fontWeight:700}}>むずかしい</span>
+                      <span style={{fontSize:10,opacity:0.7}}>{hints.hard}</span>
+                    </button>
+                    <button onClick={()=>applyRating("good")} style={{...S.ratingBtn,background:"#22c55e20",border:"1px solid #22c55e60",color:"#4ade80"}}>
+                      <span style={{fontSize:13,fontWeight:700}}>わかった</span>
+                      <span style={{fontSize:10,opacity:0.7}}>{hints.good}</span>
+                    </button>
+                    <button onClick={()=>applyRating("easy")} style={{...S.ratingBtn,background:"#60a5fa20",border:"1px solid #60a5fa60",color:"#93c5fd"}}>
+                      <span style={{fontSize:13,fontWeight:700}}>かんたん</span>
+                      <span style={{fontSize:10,opacity:0.7}}>{hints.easy}</span>
+                    </button>
+                  </div>
+                  <div style={{fontSize:10,color:"#334155"}}>残り {reviewQueueRef.current.length + againQueueRef.current.length} 枚</div>
+                </>
+              );
+            })():(
+              <button onClick={()=>nextQuestion(regionRef.current,reviewRef.current,progressRef.current)}
+                onKeyDown={handleKey} style={{...S.answerBtn,background:region.color,width:"100%"}} autoFocus>
+                次へ → <span style={{fontSize:11,opacity:0.6}}>Enter</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -545,4 +787,5 @@ const S={
   resultBox:{display:"flex",alignItems:"center",justifyContent:"center",gap:12,borderRadius:14,padding:"16px 20px",width:"100%"},
   modeBtn:{background:"transparent",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"8px 12px",color:"#475569",cursor:"pointer",fontSize:12,fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif"},
   pokeCard:{background:"rgba(255,255,255,0.035)",border:"1px solid",borderRadius:12,padding:"12px 8px",display:"flex",flexDirection:"column",alignItems:"center",gap:4},
+  ratingBtn:{borderRadius:12,padding:"12px 8px",fontWeight:700,cursor:"pointer",fontFamily:"'Hiragino Sans','Noto Sans JP',sans-serif",display:"flex",flexDirection:"column",alignItems:"center",gap:3},
 };
